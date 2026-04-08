@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マイ家計簿 Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --danger-color: #e74c3c;
+            --bg-color: #f8f9fa;
+        }
+
+        body {
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            width: 100%;
+            max-width: 450px;
+        }
+
+        h1 { text-align: center; color: #333; margin-bottom: 25px; }
+
+        .summary {
+            background: #fdfdfd;
+            border: 1px solid #eee;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .total-label { font-size: 0.9rem; color: #666; }
+        .total-amount { font-size: 1.8rem; font-weight: bold; color: var(--danger-color); }
+
+        /* フォームのスタイル */
+        form { display: flex; flex-direction: column; gap: 12px; margin-bottom: 30px; }
+        input, select, button {
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+
+        /* リストのスタイル */
+        #history-list { list-style: none; padding: 0; margin-top: 20px; }
+        .item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .item-info small { color: #999; display: block; font-size: 0.75rem; }
+        .item-info span { color: #666; font-size: 0.85rem; }
+        .item-info strong { display: block; color: #333; }
+        
+        .delete-btn {
+            background: none;
+            border: none;
+            color: #ccc;
+            font-size: 1.2rem;
+            cursor: pointer;
+        }
+        .delete-btn:hover { color: var(--danger-color); }
+
+        /* グラフエリア */
+        .chart-container {
+            margin: 20px 0;
+            max-height: 250px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>家計簿アプリ</h1>
+
+    <div class="summary">
+        <div class="total-label">合計支出</div>
+        <div class="total-amount">¥ <span id="total-amount">0</span></div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="category-chart"></canvas>
+    </div>
+
+    <form id="budget-form">
+        <input type="date" id="item-date" required>
+        <select id="item-category">
+            <option value="食費">食費</option>
+            <option value="交際費">交際費</option>
+            <option value="交通費">交通費</option>
+            <option value="日用品">日用品</option>
+            <option value="その他">その他</option>
+        </select>
+        <input type="text" id="item-name" placeholder="品目（例：コンビニ）" required>
+        <input type="number" id="item-amount" placeholder="金額（半角数字）" required>
+        <button type="submit">追加する</button>
+    </form>
+
+    <div style="font-weight: bold; border-bottom: 2px solid #eee; padding-bottom: 5px;">履歴</div>
+    <ul id="history-list">
+        </ul>
+</div>
+
+<script>
+    const form = document.getElementById('budget-form');
+    const historyList = document.getElementById('history-list');
+    const totalDisplay = document.getElementById('total-amount');
+    const dateInput = document.getElementById('item-date');
+    
+    // グラフ用変数
+    let myChart = null;
+
+    // 初期データ読み込み
+    let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
+    
+    // 日付入力の初期値を今日に設定
+    dateInput.value = new Date().toISOString().split('T')[0];
+
+    // UIとグラフの更新
+    function updateUI() {
+        // 日付順に並び替え
+        transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        historyList.innerHTML = '';
+        let total = 0;
+
+        transactions.forEach((t, index) => {
+            const li = document.createElement('li');
+            li.className = 'item';
+            li.innerHTML = `
+                <div class="item-info">
+                    <small>${t.date}</small>
+                    <span>[${t.category}]</span>
+                    <strong>${t.name}</strong>
+                </div>
+                <div>
+                    <strong>¥${t.amount.toLocaleString()}</strong>
+                    <button class="delete-btn" onclick="deleteItem(${index})">×</button>
+                </div>
+            `;
+            historyList.appendChild(li);
+            total += t.amount;
+        });
+
+        totalDisplay.innerText = total.toLocaleString();
+        localStorage.setItem('transactions', JSON.stringify(transactions));
+        updateChart();
+    }
+
+    // グラフの描画
+    function updateChart() {
+        const ctx = document.getElementById('category-chart').getContext('2d');
+        
+        // カテゴリー集計
+        const totals = {};
+        transactions.forEach(t => {
+            totals[t.category] = (totals[t.category] || 0) + t.amount;
+        });
+
+        if (myChart) myChart.destroy();
+
+        // データが空ならグラフを表示しない
+        if (transactions.length === 0) return;
+
+        myChart = new Chart(ctx, {
+            type: 'doughnut', // ドーナツ型にアレンジ
+            data: {
+                labels: Object.keys(totals),
+                datasets: [{
+                    data: Object.values(totals),
+                    backgroundColor: ['#ff6384', '#36a2eb', '#ffce56', '#4bc0c0', '#9966ff', '#ff9f40']
+                }]
+            },
+            options: {
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    }
+
+    // データ追加
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const date = dateInput.value;
+        const category = document.getElementById('item-category').value;
+        const name = document.getElementById('item-name').value;
+        const amount = parseInt(document.getElementById('item-amount').value);
+
+        transactions.push({ date, category, name, amount });
+        updateUI();
+        
+        // 入力欄をクリア（日付以外）
+        document.getElementById('item-name').value = '';
+        document.getElementById('item-amount').value = '';
+    });
+
+    // データ削除
+    window.deleteItem = (index) => {
+        if(confirm('この履歴を削除しますか？')) {
+            transactions.splice(index, 1);
+            updateUI();
+        }
+    };
+
+    // 起動時に実行
+    updateUI();
+</script>
+
+</body>
+</html>
