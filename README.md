@@ -50,3 +50,5 @@ Empower your financial health with data visualization.
 [ ] 月ごとの支出レポート生成
 
 [ ] ダークモードへの対応
+
+<img width="1291" height="1115" alt="スクリーンショット 2026-05-09 200255" src="https://github.com/user-attachments/assets/fbcc1eed-4312-45ac-ae1e-73eff89921d3" />
